@@ -1,6 +1,6 @@
 streamlit>=1.26.0
 pandas>=2.1.0
-matplotlib>=3.7.0
+matplotlib
 httpx>=0.24.1
 bip_utils>=2.5.0
 cryptography>=39.0.0
