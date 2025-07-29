@@ -15,7 +15,7 @@ from utils.ai import AIFilter
 from utils.risk import RiskScanner
 from utils.notifications import Notifier
 
-cfg = Config(decrypt_key=st.secrets.get("FERNET_KEY", ""))
+cfg = Config()
 AIFilter.init_client(cfg)
 price_fetcher = PriceFetcher(cfg)
 checker = WalletChecker(cfg, price_fetcher)
