@@ -14,7 +14,7 @@ httpx>=0.24.1
 python-dotenv>=1.0.0
 
 # العملات ومحافظ التشفير
-bip_utils>=2.5.0
+bip_utils>=2.9.3
 eth-account>=0.8.0
 
 # البرمجة غير المتزامنة (async)
