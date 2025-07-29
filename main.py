@@ -3,7 +3,6 @@
 import os
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import asyncio
 import json
 
@@ -66,13 +65,10 @@ async def run_search(min_usdt, concurrency):
                 """)
                 st.markdown("---")
 
-            st.markdown("### توزيع المحافظ حسب التصنيف:")
-            score_counts = df["score"].value_counts().reset_index()
-            score_counts.columns = ["score", "count"]
-            fig = px.bar(score_counts, x="score", y="count",
-                         labels={"score": "تصنيف AI", "count": "عدد المحافظ"},
-                         title="توزيع المحافظ حسب التصنيف")
-            st.plotly_chart(fig, use_container_width=True)
+            score_summary = df["score"].value_counts().to_dict()
+            st.markdown("### ملخص التصنيفات:")
+            for label, count in score_summary.items():
+                st.markdown(f"- التصنيف `{label}`: {count} محفظة")
 
             asyncio.run(notifier.send_telegram(f"🟢 تم العثور على {len(results)} محفظة ≥ {min_usdt} USDT"))
         else:
@@ -123,17 +119,13 @@ with tabs[4]:
         counts = [len(entry["results"]) for entry in all_data]
         total_usdt = [sum(w["total_usdt"] for w in entry["results"]) for entry in all_data]
 
-        st.markdown("### 📉 عدد المحافظ عبر الزمن")
-        fig1 = px.line(x=timestamps, y=counts,
-                       labels={"x": "التاريخ", "y": "عدد المحافظ"},
-                       title="توزيع المحافظ عبر الوقت")
-        st.plotly_chart(fig1, use_container_width=True)
+        st.markdown("### ⏳ عدد المحافظ عبر الزمن:")
+        for t, c in zip(timestamps, counts):
+            st.markdown(f"- `{t}`: {c} محافظ")
 
-        st.markdown("### 📊 الرصيد الإجمالي عبر الزمن")
-        fig2 = px.line(x=timestamps, y=total_usdt,
-                       labels={"x": "التاريخ", "y": "الرصيد الإجمالي (USDT)"},
-                       title="توزيع الرصيد الإجمالي عبر الوقت")
-        st.plotly_chart(fig2, use_container_width=True)
+        st.markdown("### 💰 الرصيد الإجمالي عبر الزمن:")
+        for t, v in zip(timestamps, total_usdt):
+            st.markdown(f"- `{t}`: ${v:.2f} USDT")
 
         network_counts = {}
         for entry in all_data:
@@ -141,11 +133,9 @@ with tabs[4]:
                 chain = wallet["chain"]
                 network_counts[chain] = network_counts.get(chain, 0) + 1
 
-        df_net = pd.DataFrame({"network": list(network_counts.keys()), "count": list(network_counts.values())})
-        fig3 = px.bar(df_net, x="network", y="count",
-                      labels={"network": "الشبكة", "count": "عدد المحافظ"},
-                      title="توزيع المحافظ حسب الشبكة")
-        st.plotly_chart(fig3, use_container_width=True)
+        st.markdown("### 🌐 توزيع المحافظ حسب الشبكة:")
+        for chain, count in network_counts.items():
+            st.markdown(f"- `{chain}`: {count} محافظ")
 
         selected_date = st.selectbox("اختر تاريخ الفحص:", timestamps)
         selected_data = next(item for item in all_data if item["timestamp"] == selected_date)
