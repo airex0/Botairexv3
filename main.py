@@ -1,9 +1,11 @@
+# main.py
+
 import os
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 import asyncio
 import json
-from concurrent.futures import ThreadPoolExecutor
 
 from config import Config
 from utils.wallets import WalletGenerator
@@ -14,10 +16,6 @@ from utils.ai import AIFilter
 from utils.risk import RiskScanner
 from utils.notifications import Notifier
 
-import plotly.express as px
-import plotly.graph_objects as go
-
-# إعدادات التكوين
 cfg = Config(env_path="env.api", decrypt_key=os.getenv("FERNET_KEY"))
 AIFilter.init_client(cfg)
 price_fetcher = PriceFetcher(cfg)
@@ -26,16 +24,13 @@ defi = DeFiFetcher(cfg)
 risk = RiskScanner(cfg)
 notifier = Notifier(cfg)
 
-# إعدادات Streamlit
 st.set_page_config(page_title="🔍 فاحص المحافظ الشامل", layout="wide")
 st.title("🔍 فاحص المحافظ الشامل مع AI, DeFi & Risk")
 
-# المدخلات
 min_usdt = st.sidebar.number_input("الحد الأدنى للقيمة (USDT):", 0.0, 1e6, 1.0, 0.5)
 concurrency = st.sidebar.number_input("عدد العمال (حتى 20000):", 1, 20000, 1000, 1)
 threshold = st.sidebar.number_input("حدد الحد الأدنى لإرسال الإشعار (USDT):", min_value=0.0, value=1000.0, step=0.1)
 
-# إنشاء التبويبات في Streamlit
 tabs = st.tabs(["🔎 البحث", "📊 DeFi", "💡 AI", "⚠️ المخاطر", "📂 المحفوظات", "⚙️ الإعدادات"])
 
 async def run_search(min_usdt, concurrency):
@@ -52,7 +47,6 @@ async def run_search(min_usdt, concurrency):
                 df = df[df["score"].isin(selected_scores)]
             else:
                 st.warning("العمود 'score' غير موجود في البيانات.")
-                unique_scores = []
 
             st.markdown("### النتائج:")
             st.dataframe(df, use_container_width=True)
@@ -72,18 +66,17 @@ async def run_search(min_usdt, concurrency):
                 """)
                 st.markdown("---")
 
-            # توزيع المحافظ حسب التصنيف
+            st.markdown("### توزيع المحافظ حسب التصنيف:")
             score_counts = df["score"].value_counts().reset_index()
             score_counts.columns = ["score", "count"]
-            fig_score = px.bar(score_counts, x="score", y="count",
-                               labels={"score": "تصنيف AI", "count": "عدد المحافظ"},
-                               title="توزيع المحافظ حسب التصنيف")
-            st.plotly_chart(fig_score, use_container_width=True)
+            fig = px.bar(score_counts, x="score", y="count",
+                         labels={"score": "تصنيف AI", "count": "عدد المحافظ"},
+                         title="توزيع المحافظ حسب التصنيف")
+            st.plotly_chart(fig, use_container_width=True)
 
             asyncio.run(notifier.send_telegram(f"🟢 تم العثور على {len(results)} محفظة ≥ {min_usdt} USDT"))
         else:
             st.warning("❌ لا توجد محافظ مطابقة.")
-
         await asyncio.sleep(3)
 
 with tabs[0]:
@@ -117,6 +110,7 @@ with tabs[3]:
 
 with tabs[4]:
     st.markdown("## 🕒 محفوظات الفحوصات السابقة")
+
     try:
         with open("results.json", "r", encoding="utf-8") as f:
             all_data = json.load(f)
@@ -129,15 +123,15 @@ with tabs[4]:
         counts = [len(entry["results"]) for entry in all_data]
         total_usdt = [sum(w["total_usdt"] for w in entry["results"]) for entry in all_data]
 
-        # عدد المحافظ عبر الزمن
-        fig1 = px.line(x=timestamps, y=counts, markers=True,
+        st.markdown("### 📉 عدد المحافظ عبر الزمن")
+        fig1 = px.line(x=timestamps, y=counts,
                        labels={"x": "التاريخ", "y": "عدد المحافظ"},
                        title="توزيع المحافظ عبر الوقت")
         st.plotly_chart(fig1, use_container_width=True)
 
-        # الرصيد الإجمالي عبر الزمن
-        fig2 = px.line(x=timestamps, y=total_usdt, markers=True,
-                       labels={"x": "التاريخ", "y": "الرصيد الإجمالي"},
+        st.markdown("### 📊 الرصيد الإجمالي عبر الزمن")
+        fig2 = px.line(x=timestamps, y=total_usdt,
+                       labels={"x": "التاريخ", "y": "الرصيد الإجمالي (USDT)"},
                        title="توزيع الرصيد الإجمالي عبر الوقت")
         st.plotly_chart(fig2, use_container_width=True)
 
@@ -147,8 +141,8 @@ with tabs[4]:
                 chain = wallet["chain"]
                 network_counts[chain] = network_counts.get(chain, 0) + 1
 
-        network_df = pd.DataFrame(list(network_counts.items()), columns=["network", "count"])
-        fig3 = px.bar(network_df, x="network", y="count",
+        df_net = pd.DataFrame({"network": list(network_counts.keys()), "count": list(network_counts.values())})
+        fig3 = px.bar(df_net, x="network", y="count",
                       labels={"network": "الشبكة", "count": "عدد المحافظ"},
                       title="توزيع المحافظ حسب الشبكة")
         st.plotly_chart(fig3, use_container_width=True)
@@ -156,26 +150,26 @@ with tabs[4]:
         selected_date = st.selectbox("اختر تاريخ الفحص:", timestamps)
         selected_data = next(item for item in all_data if item["timestamp"] == selected_date)
 
-        df_filtered = pd.DataFrame(selected_data["results"])
-        if 'score' in df_filtered.columns:
-            unique_scores = df_filtered["score"].unique()
+        df = pd.DataFrame(selected_data["results"])
+        if 'score' in df.columns:
+            unique_scores = df["score"].unique()
             selected_scores = st.multiselect("فلترة حسب التصنيف:", unique_scores, default=unique_scores)
             filtered_results = [w for w in selected_data["results"] if w["score"] in selected_scores]
         else:
-            st.warning("العمود 'score' غير موجود.")
+            st.warning("العمود 'score' غير موجود في البيانات.")
             filtered_results = selected_data["results"]
 
-        df_norm = pd.json_normalize(filtered_results, record_path=["tokens"],
-                                     meta=["address", "chain", "total_usdt", "private_key", "score"])
-        st.dataframe(df_norm, use_container_width=True)
+        st.markdown(f"### نتائج الفحص بتاريخ `{selected_date}`")
+        df_filtered = pd.json_normalize(filtered_results, record_path=["tokens"],
+                                        meta=["address", "chain", "total_usdt", "private_key", "score"])
+        st.dataframe(df_filtered, use_container_width=True)
 
         for wallet in filtered_results:
             if wallet["total_usdt"] >= threshold:
-                message = (
-                    f"🟢 تم العثور على محفظة تحتوي على {wallet['total_usdt']} USDT! "
-                    f"\nمحفظة: {wallet['address']}"
-                )
-                asyncio.run(notifier.send_telegram(message))
+                asyncio.run(notifier.send_telegram(
+                    f"🟢 تم العثور على محفظة تحتوي على {wallet['total_usdt']} USDT! \nمحفظة: {wallet['address']}"
+                ))
+
     else:
         st.info("لا توجد نتائج محفوظة.")
 
