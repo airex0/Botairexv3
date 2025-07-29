@@ -1,10 +1,10 @@
 # main.py
 
-import os
 import streamlit as st
 import pandas as pd
 import asyncio
 import json
+import os
 
 from config import Config
 from utils.wallets import WalletGenerator
@@ -15,8 +15,7 @@ from utils.ai import AIFilter
 from utils.risk import RiskScanner
 from utils.notifications import Notifier
 
-from streamlit.runtime.secrets import secrets
-cfg = Config(decrypt_key=secrets.get("FERNET_KEY", ""))
+cfg = Config(decrypt_key=st.secrets.get("FERNET_KEY", ""))
 AIFilter.init_client(cfg)
 price_fetcher = PriceFetcher(cfg)
 checker = WalletChecker(cfg, price_fetcher)
@@ -166,5 +165,5 @@ with tabs[4]:
 
 with tabs[5]:
     st.markdown("## ⚙️ إعدادات النظام")
-    st.write("تم تحميل المفاتيح من `env.api`. لا تنس استخدام `FERNET_KEY` إذا كانت مشفرة.")
+    st.write("تم تحميل المفاتيح من `st.secrets`. لا تنس استخدام `FERNET_KEY` إذا كانت مشفرة.")
     st.write("المفاتيح تشمل: Alchemy، Covalent، OpenRouter، Telegram.")
