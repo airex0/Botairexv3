@@ -1,44 +1,34 @@
 import os
 import logging
 from pathlib import Path
-import streamlit as st
-from cryptography.fernet import Fernet
+from dotenv import load_dotenv
 import logging.handlers
 
+# تحميل المتغيرات من .env (لبيئة التطوير المحلي)
+load_dotenv()
+
 class Config:
-    def __init__(self, log_dir: str = "logs", log_level: str = "INFO"):
-        is_streamlit = bool(st.secrets)
+    def __init__(self,
+                 env_path: str = ".env",
+                 log_dir: str = "logs",
+                 log_level: str = "INFO"):
+        load_dotenv(dotenv_path=env_path)
 
-        # استخدم st.secrets إذا كان يعمل على Streamlit Cloud
-        self._get = lambda key: st.secrets.get(key) if is_streamlit else os.getenv(key, "")
-
-        # التشفير إن وجد
-        decrypt_key = self._get("FERNET_KEY")
-        self._decryptor = Fernet(decrypt_key) if decrypt_key else None
-
-        # تحميل المفاتيح
-        self.ALCHEMY_KEY      = self._get_decrypted("ALCHEMY_KEY")
-        self.COVALENT_KEY     = self._get_decrypted("COVALENT_KEY")
-        self.OPENROUTER_KEY   = self._get_decrypted("OPENROUTER_KEY")
-        self.TELEGRAM_TOKEN   = self._get_decrypted("TELEGRAM_TOKEN")
-        self.TELEGRAM_CHAT_ID = self._get_decrypted("TELEGRAM_CHAT_ID")
-        self.FERNET_KEY       = decrypt_key
+        # تحميل المفاتيح البيئية
+        self.ALCHEMY_KEY      = os.getenv("ALCHEMY_KEY", "")
+        self.COVALENT_KEY     = os.getenv("COVALENT_KEY", "")
+        self.OPENROUTER_KEY   = os.getenv("OPENROUTER_KEY", "")
+        self.TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
+        self.TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+        self.FERNET_KEY       = os.getenv("FERNET_KEY", "")
 
         self.NETWORKS = self._build_networks()
-        self.COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,binancecoin,polygon,fantom,avalanche-2,arbitrum-one,optimism,solana,litecoin&vs_currencies=usd"
-        self.COVALENT_TX_URL = f"https://api.covalenthq.com/v1/{{chain_id}}/address/{{address}}/transactions_v2/?key={self.COVALENT_KEY}"
-        self.COVALENT_DEFI_URL = f"https://api.covalenthq.com/v1/{{chain_id}}/address/{{address}}/portfolio_v2/?key={self.COVALENT_KEY}"
+
+        self.COINGECKO_URL     = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,binancecoin,polygon,fantom,avalanche-2,arbitrum-one,optimism,solana,litecoin&vs_currencies=usd"
+        self.COVALENT_TX_URL   = "https://api.covalenthq.com/v1/{chain_id}/address/{address}/transactions_v2/?key=" + self.COVALENT_KEY
+        self.COVALENT_DEFI_URL = "https://api.covalenthq.com/v1/{chain_id}/address/{address}/portfolio_v2/?key=" + self.COVALENT_KEY
 
         self._setup_logging(log_dir, log_level)
-
-    def _get_decrypted(self, key: str) -> str:
-        raw = self._get(key)
-        if self._decryptor:
-            try:
-                return self._decryptor.decrypt(raw.encode()).decode()
-            except Exception as e:
-                logging.warning(f"❌ Failed to decrypt {key}: {e}")
-        return raw
 
     def _build_networks(self) -> dict:
         k = self.ALCHEMY_KEY
@@ -58,7 +48,7 @@ class Config:
     def _setup_logging(self, log_dir: str, level: str):
         Path(log_dir).mkdir(exist_ok=True)
         handler = logging.handlers.RotatingFileHandler(
-            f"{log_dir}/app.log", maxBytes=5*1024*1024, backupCount=5
+            f"{log_dir}/app.log", maxBytes=5 * 1024 * 1024, backupCount=5
         )
         fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
         handler.setFormatter(fmt)
