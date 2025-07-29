@@ -1,32 +1,33 @@
-import os
 import logging
 from pathlib import Path
-from dotenv import load_dotenv
 import logging.handlers
-
-# تحميل المتغيرات من .env (لبيئة التطوير المحلي)
-load_dotenv()
+import streamlit as st
 
 class Config:
-    def __init__(self,
-                 env_path: str = ".env",
-                 log_dir: str = "logs",
-                 log_level: str = "INFO"):
-        load_dotenv(dotenv_path=env_path)
-
-        # تحميل المفاتيح البيئية
-        self.ALCHEMY_KEY      = os.getenv("ALCHEMY_KEY", "")
-        self.COVALENT_KEY     = os.getenv("COVALENT_KEY", "")
-        self.OPENROUTER_KEY   = os.getenv("OPENROUTER_KEY", "")
-        self.TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
-        self.TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
-        self.FERNET_KEY       = os.getenv("FERNET_KEY", "")
+    def __init__(self, log_dir: str = "logs", log_level: str = "INFO"):
+        # تحميل القيم من st.secrets
+        self.ALCHEMY_KEY      = st.secrets["ALCHEMY_KEY"]
+        self.COVALENT_KEY     = st.secrets["COVALENT_KEY"]
+        self.OPENROUTER_KEY   = st.secrets["OPENROUTER_KEY"]
+        self.TELEGRAM_TOKEN   = st.secrets["TELEGRAM_TOKEN"]
+        self.TELEGRAM_CHAT_ID = st.secrets["TELEGRAM_CHAT_ID"]
+        self.FERNET_KEY       = st.secrets.get("FERNET_KEY", "")  # احتياطي إن تم استخدامه لاحقًا
 
         self.NETWORKS = self._build_networks()
 
-        self.COINGECKO_URL     = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,binancecoin,polygon,fantom,avalanche-2,arbitrum-one,optimism,solana,litecoin&vs_currencies=usd"
-        self.COVALENT_TX_URL   = "https://api.covalenthq.com/v1/{chain_id}/address/{address}/transactions_v2/?key=" + self.COVALENT_KEY
-        self.COVALENT_DEFI_URL = "https://api.covalenthq.com/v1/{chain_id}/address/{address}/portfolio_v2/?key=" + self.COVALENT_KEY
+        self.COINGECKO_URL     = (
+            "https://api.coingecko.com/api/v3/simple/price?"
+            "ids=bitcoin,ethereum,binancecoin,polygon,fantom,avalanche-2,"
+            "arbitrum-one,optimism,solana,litecoin&vs_currencies=usd"
+        )
+        self.COVALENT_TX_URL   = (
+            "https://api.covalenthq.com/v1/{chain_id}/address/{address}/transactions_v2/?key="
+            + self.COVALENT_KEY
+        )
+        self.COVALENT_DEFI_URL = (
+            "https://api.covalenthq.com/v1/{chain_id}/address/{address}/portfolio_v2/?key="
+            + self.COVALENT_KEY
+        )
 
         self._setup_logging(log_dir, log_level)
 
