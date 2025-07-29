@@ -15,7 +15,8 @@ from utils.ai import AIFilter
 from utils.risk import RiskScanner
 from utils.notifications import Notifier
 
-cfg = Config(env_path="env.api", decrypt_key=os.getenv("FERNET_KEY"))
+from streamlit.runtime.secrets import secrets
+cfg = Config(decrypt_key=secrets.get("FERNET_KEY", ""))
 AIFilter.init_client(cfg)
 price_fetcher = PriceFetcher(cfg)
 checker = WalletChecker(cfg, price_fetcher)
