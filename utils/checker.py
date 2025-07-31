@@ -5,6 +5,8 @@ import logging
 import json
 from datetime import datetime
 from typing import List, Dict
+from dataclasses import dataclass
+
 import httpx
 
 from .wallets import WalletGenerator
@@ -12,13 +14,22 @@ from .ai import AIFilter
 from .pricing import PriceFetcher
 from config import Config
 
+@dataclass
+class WalletResult:
+    address: str
+    private_key: str
+    chain: str
+    total_usdt: float
+    tokens: List[Dict]
+    score: str
+    timestamp: datetime
 
 class WalletChecker:
     def __init__(self, cfg: Config, price_fetcher: PriceFetcher):
         self.networks = cfg.NETWORKS
         self.price_fetcher = price_fetcher
 
-    async def _check_evm(self, addr: str, prices: dict, min_usdt: float) -> List[Dict]:
+    async def _check_evm(self, addr: str, prices: dict, min_usdt: float) -> List[WalletResult]:
         found = []
         async with httpx.AsyncClient() as client:
             for name, info in self.networks.items():
@@ -56,15 +67,24 @@ class WalletChecker:
                     })
 
                 if total >= min_usdt:
-                    found.append({
-                        "address": addr,
-                        "chain": name,
-                        "total_usdt": round(total, 2),
-                        "tokens": tokens
+                    score = AIFilter.classify_wallet({
+                        "total_usdt": total,
+                        "num_tokens": len(tokens),
+                        "avg_token_value": total / len(tokens) if tokens else 0,
+                        "max_token_value": max([t["value_usd"] for t in tokens]) if tokens else 0
                     })
+                    found.append(WalletResult(
+                        address=addr,
+                        private_key="(hidden)",  # سيُضاف لاحقًا
+                        chain=name,
+                        total_usdt=round(total, 2),
+                        tokens=tokens,
+                        score=score,
+                        timestamp=datetime.now()
+                    ))
         return found
 
-    async def _check_utxo(self, addr: str, prices: dict, min_usdt: float, chain: str):
+    async def _check_utxo(self, addr: str, prices: dict, min_usdt: float, chain: str) -> List[WalletResult]:
         info = self.networks[chain]
         url = f"{info['api']}/{addr}/balance"
         try:
@@ -78,23 +98,31 @@ class WalletChecker:
         val = bal * prices.get(chain.lower(), {}).get("usd", 0)
         if val < min_usdt:
             return []
-        return [{
-            "address": addr,
-            "chain": chain,
-            "total_usdt": round(val, 2),
-            "tokens": [{
+        score = AIFilter.classify_wallet({
+            "total_usdt": val,
+            "num_tokens": 1,
+            "avg_token_value": val,
+            "max_token_value": val
+        })
+        return [WalletResult(
+            address=addr,
+            private_key="(hidden)",
+            chain=chain,
+            total_usdt=round(val, 2),
+            tokens=[{
                 "symbol": chain.upper(),
                 "balance": round(bal, 6),
                 "value_usd": round(val, 2)
-            }]
-        }]
+            }],
+            score=score,
+            timestamp=datetime.now()
+        )]
 
-    async def gen_and_check(self, min_usdt: float, concurrency: int = 1000) -> List[Dict]:
+    async def gen_and_check(self, min_usdt: float, concurrency: int = 1000) -> List[WalletResult]:
         prices = await self.price_fetcher.fetch()
         sem = asyncio.Semaphore(concurrency)
-        results: List[Dict] = []
+        results: List[WalletResult] = []
 
-        # كلمات مشهورة لاستخدام HD wallets (اختياري)
         common_mnemonics = [
             "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
             "legal winner thank year wave sausage worth useful legal winner thank yellow",
@@ -118,21 +146,18 @@ class WalletChecker:
                         found = await self._check_evm(addr, prices, min_usdt)
 
                     for w in found:
-                        if AIFilter.filter(w):
-                            w["private_key"] = priv
-                            w["score"] = AIFilter.classify_wallet(w)
-                            results.append(w)
+                        w.private_key = priv
+                        results.append(w)
                 except Exception as e:
                     logging.warning(f"Worker error: {e}")
 
         await asyncio.gather(*[worker() for _ in range(concurrency)])
         logging.info(f"gen_and_check completed, found {len(results)} wallets")
 
-        # حفظ النتائج في ملف JSON بتاريخ
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # حفظ النتائج
         output = {
-            "timestamp": timestamp,
-            "results": results
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "results": [w.__dict__ for w in results]
         }
 
         try:

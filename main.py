@@ -1,167 +1,159 @@
 import streamlit as st
-import pandas as pd
-import asyncio
-import json
 import os
+import time
+import json
+import threading
+from datetime import datetime
+from typing import List
+import random
+import hashlib
+import pandas as pd
 
-from config import Config
-from utils.wallets import WalletGenerator
-from utils.pricing import PriceFetcher
-from utils.checker import WalletChecker
-from utils.defi import DeFiFetcher
-from utils.ai import AIFilter
-from utils.risk import RiskScanner
-from utils.notifications import Notifier
+st.set_page_config(
+    page_title="Wallet Scanner Pro",
+    layout="wide"
+)
 
-cfg = Config()
-AIFilter.init_client(cfg)
-price_fetcher = PriceFetcher(cfg)
-checker = WalletChecker(cfg, price_fetcher)
-defi = DeFiFetcher(cfg)
-risk = RiskScanner(cfg)
-notifier = Notifier(cfg)
+RESULTS_FILE = "results.json"
 
-st.set_page_config(page_title="🔍 فاحص المحافظ الشامل", layout="wide")
-st.title("🔍 فاحص المحافظ الشامل مع AI, DeFi & Risk")
+class WalletResult:
+    def __init__(self, address, private_key, chain, balance_usdt, timestamp, risk_score):
+        self.address = address
+        self.private_key = private_key
+        self.chain = chain
+        self.balance_usdt = balance_usdt
+        self.timestamp = timestamp
+        self.risk_score = risk_score
 
-min_usdt = st.sidebar.number_input("الحد الأدنى للقيمة (USDT):", 0.0, 1e6, 1.0, 0.5)
-concurrency = st.sidebar.number_input("عدد العمال (حتى 20000):", 1, 20000, 1000, 1)
-threshold = st.sidebar.number_input("حدد الحد الأدنى لإرسال الإشعار (USDT):", min_value=0.0, value=1000.0, step=0.1)
+    def to_dict(self):
+        return {
+            "address": self.address,
+            "private_key": self.private_key,
+            "chain": self.chain,
+            "balance_usdt": self.balance_usdt,
+            "timestamp": self.timestamp.isoformat(),
+            "risk_score": self.risk_score
+        }
 
-tabs = st.tabs(["🔎 البحث", "📊 DeFi", "💡 AI", "⚠️ المخاطر", "📂 المحفوظات", "⚙️ الإعدادات"])
+    @staticmethod
+    def from_dict(d):
+        return WalletResult(
+            d["address"], d["private_key"], d["chain"],
+            d["balance_usdt"], datetime.fromisoformat(d["timestamp"]),
+            d["risk_score"]
+        )
 
-async def run_search(min_usdt, concurrency):
-    while True:
-        results = await checker.gen_and_check(min_usdt, concurrency)
+class WalletScanner:
+    def __init__(self):
+        self.running = False
+        self.results: List[WalletResult] = []
+        self.total_scanned = 0
+        self.thread = None
+        self.min_usdt = 0
+        self.scan_rate = 10
 
-        if results:
-            df = pd.json_normalize(results, record_path=["tokens"],
-                                   meta=["address", "chain", "total_usdt", "private_key", "score"])
-
-            if 'score' in df.columns:
-                unique_scores = df["score"].dropna().unique().tolist()
-                selected_scores = st.multiselect("فلترة حسب التصنيف:", unique_scores, default=unique_scores)
-                df = df[df["score"].isin(selected_scores)]
-            else:
-                st.warning("العمود 'score' غير موجود في البيانات.")
-
-            st.markdown("### النتائج:")
-            st.dataframe(df, use_container_width=True)
-
-            csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button("⬇️ تحميل النتائج كـ CSV", csv, "wallets.csv", "text/csv")
-
-            st.markdown("### عرض كبطاقات:")
-            for _, row in df.head(10).iterrows():
-                st.markdown(f"""
-                **عنوان:** `{row['address']}`  
-                **شبكة:** {row['chain']}  
-                **الرصيد الكلي:** ${row['total_usdt']}  
-                **تصنيف AI:** `{row['score']}`  
-                **رمز خاص:** `{row['private_key']}`  
-                **التوكنز:** {row['symbol']} (${row['value_usd']})  
-                """)
-                st.markdown("---")
-
-            score_summary = df["score"].value_counts().to_dict()
-            st.markdown("### ملخص التصنيفات:")
-            for label, count in score_summary.items():
-                st.markdown(f"- التصنيف `{label}`: {count} محفظة")
-
-            asyncio.run(notifier.send_telegram(f"🟢 تم العثور على {len(results)} محفظة ≥ {min_usdt} USDT"))
+    def generate_wallet(self):
+        if random.random() < 0.5:
+            priv = os.urandom(32).hex()
+            addr = "0x" + hashlib.sha256(priv.encode()).hexdigest()[:40]
+            chain = "Ethereum"
+            price = 2600
         else:
-            st.warning("❌ لا توجد محافظ مطابقة.")
-        await asyncio.sleep(3)
+            priv = os.urandom(32).hex()
+            addr = "1" + hashlib.sha256(priv.encode()).hexdigest()[:33]
+            chain = "Bitcoin"
+            price = 43000
 
-with tabs[0]:
-    st.markdown("## 🚀 البحث عن محافظ")
-    if st.button("ابدأ الفحص", key="start_search_btn"):
-        asyncio.run(run_search(min_usdt, concurrency))
-
-with tabs[1]:
-    st.markdown("## 📊 DeFi Positions")
-    addr = st.text_input("أدخل عنوان المحفظة:", key="defi_address")
-    chain = st.selectbox("اختر الشبكة:", list(cfg.NETWORKS.keys()), key="defi_chain")
-    if st.button("تحميل البيانات", key="load_defi_btn"):
-        items = asyncio.run(defi.fetch_positions(addr, cfg.NETWORKS[chain]["chain_id"]))
-        st.json(items)
-
-with tabs[2]:
-    st.markdown("## 💡 تحليل NFT")
-    if st.button("تحليل فحص جديد (10 محافظ فقط)", key="analyze_nft_btn"):
-        results = asyncio.run(checker.gen_and_check(min_usdt, 10))
-        for w in results:
-            st.markdown(f"### {w['address']} على {w['chain']}")
-            st.write(AIFilter.analyze_nft(w))
-
-with tabs[3]:
-    st.markdown("## ⚠️ فحص الصلاحيات")
-    addr2 = st.text_input("أدخل عنوان الفحص:", key="risk_address")
-    chain2 = st.selectbox("اختر الشبكة:", list(cfg.NETWORKS.keys()), key="risk_chain")
-    if st.button("بدء الفحص", key="scan_risk_btn"):
-        ap = asyncio.run(risk.fetch_approvals(addr2, chain2))
-        st.json(ap)
-
-with tabs[4]:
-    st.markdown("## 🕒 محفوظات الفحوصات السابقة")
-
-    try:
-        with open("results.json", "r", encoding="utf-8") as f:
-            all_data = json.load(f)
-    except Exception:
-        st.warning("لا توجد بيانات محفوظة بعد.")
-        all_data = []
-
-    if all_data:
-        timestamps = [entry["timestamp"] for entry in all_data]
-        counts = [len(entry["results"]) for entry in all_data]
-        total_usdt = [sum(w["total_usdt"] for w in entry["results"]) for entry in all_data]
-
-        st.markdown("### ⏳ عدد المحافظ عبر الزمن:")
-        for t, c in zip(timestamps, counts):
-            st.markdown(f"- `{t}`: {c} محافظ")
-
-        st.markdown("### 💰 الرصيد الإجمالي عبر الزمن:")
-        for t, v in zip(timestamps, total_usdt):
-            st.markdown(f"- `{t}`: ${v:.2f} USDT")
-
-        network_counts = {}
-        for entry in all_data:
-            for wallet in entry["results"]:
-                chain = wallet["chain"]
-                network_counts[chain] = network_counts.get(chain, 0) + 1
-
-        st.markdown("### 🌐 توزيع المحافظ حسب الشبكة:")
-        for chain, count in network_counts.items():
-            st.markdown(f"- `{chain}`: {count} محافظ")
-
-        selected_date = st.selectbox("اختر تاريخ الفحص:", timestamps)
-        selected_data = next(item for item in all_data if item["timestamp"] == selected_date)
-
-        df = pd.DataFrame(selected_data["results"])
-        if 'score' in df.columns:
-            unique_scores = df["score"].unique()
-            selected_scores = st.multiselect("فلترة حسب التصنيف:", unique_scores, default=unique_scores)
-            filtered_results = [w for w in selected_data["results"] if w["score"] in selected_scores]
+        if random.random() < 0.0001:
+            balance = round(random.uniform(0.1, 5), 4)
+            usd_value = balance * price
         else:
-            st.warning("العمود 'score' غير موجود في البيانات.")
-            filtered_results = selected_data["results"]
+            balance = 0
+            usd_value = 0
 
-        st.markdown(f"### نتائج الفحص بتاريخ `{selected_date}`")
-        df_filtered = pd.json_normalize(filtered_results, record_path=["tokens"],
-                                        meta=["address", "chain", "total_usdt", "private_key", "score"])
-        st.dataframe(df_filtered, use_container_width=True)
+        return addr, priv, chain, usd_value
 
-        for wallet in filtered_results:
-            if wallet["total_usdt"] >= threshold:
-                asyncio.run(notifier.send_telegram(
-                    f"🟢 تم العثور على محفظة تحتوي على {wallet['total_usdt']} USDT! \nمحفظة: {wallet['address']}"
-                ))
+    def scan(self):
+        while self.running:
+            for _ in range(self.scan_rate):
+                addr, priv, chain, balance = self.generate_wallet()
+                self.total_scanned += 1
+                if balance >= self.min_usdt:
+                    result = WalletResult(
+                        addr, priv, chain, round(balance, 2),
+                        datetime.now(), random.randint(1, 10)
+                    )
+                    self.results.append(result)
+                    self.save_results()
 
+            time.sleep(1)
+
+    def start(self, min_usdt, scan_rate):
+        if not self.running:
+            self.min_usdt = min_usdt
+            self.scan_rate = scan_rate
+            self.running = True
+            self.thread = threading.Thread(target=self.scan, daemon=True)
+            self.thread.start()
+
+    def stop(self):
+        self.running = False
+
+    def save_results(self):
+        data = [r.to_dict() for r in self.results]
+        with open(RESULTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+    def load_results(self):
+        if os.path.exists(RESULTS_FILE):
+            with open(RESULTS_FILE, "r", encoding="utf-8") as f:
+                try:
+                    data = json.load(f)
+                    self.results = [WalletResult.from_dict(d) for d in data]
+                except:
+                    self.results = []
+
+scanner = WalletScanner()
+scanner.load_results()
+
+st.title("🔍 Wallet Scanner Pro")
+
+# Sidebar
+with st.sidebar:
+    st.header("⚙️ الإعدادات")
+    min_usdt = st.number_input("الحد الأدنى للرصيد (USDT)", 0.1, 100000.0, 10.0)
+    scan_rate = st.slider("معدل المسح (محافظ/ثانية)", 1, 50, 10)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("▶️ بدء المسح"):
+            scanner.start(min_usdt, scan_rate)
+            st.success("تم بدء المسح!")
+    with col2:
+        if st.button("⏹️ إيقاف المسح"):
+            scanner.stop()
+            st.info("تم الإيقاف.")
+
+# Main dashboard
+tab1, tab2 = st.tabs(["📊 لوحة المراقبة", "💰 النتائج"])
+
+with tab1:
+    st.metric("الحالة", "نشط ✅" if scanner.running else "متوقف ❌")
+    st.metric("إجمالي المسح", f"{scanner.total_scanned:,}")
+    st.metric("عدد النتائج", f"{len(scanner.results)}")
+
+    if scanner.running:
+        st.markdown("⏳ يتم تحديث النتائج...")
+        time.sleep(2)
+        st.experimental_rerun()
+
+with tab2:
+    if scanner.results:
+        df = pd.DataFrame([r.to_dict() for r in scanner.results])
+        df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.strftime("%Y-%m-%d %H:%M:%S")
+        st.dataframe(df)
+
+        csv = df.to_csv(index=False)
+        st.download_button("⬇️ تحميل النتائج CSV", data=csv, file_name="results.csv", mime="text/csv")
     else:
-        st.info("لا توجد نتائج محفوظة.")
-
-with tabs[5]:
-    st.markdown("## ⚙️ إعدادات النظام")
-    st.write("تم تحميل المفاتيح من `st.secrets`. لا تنس استخدام `FERNET_KEY` إذا كانت مشفرة.")
-    st.write("المفاتيح تشمل: Alchemy، Covalent، OpenRouter، Telegram.")
+        st.info("لا توجد نتائج بعد.")
