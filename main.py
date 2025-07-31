@@ -1,19 +1,19 @@
-# main.py
 import os
 import time
 import logging
+import asyncio
 import streamlit as st
 from datetime import datetime, timedelta
 import pandas as pd
-from notifier import Notifier
-from checker import WalletChecker
-from pricing import PriceFetcher
+
+from utils.notifications import Notifier
+from utils.checker import WalletChecker
+from utils.pricing import PriceFetcher
 from config import Config
 from threading import Thread
 
 st.set_page_config(page_title="Wallet Scanner Pro", layout="wide")
 
-# إعداد السجل
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 cfg = Config()
@@ -21,7 +21,6 @@ price_fetcher = PriceFetcher(cfg)
 checker = WalletChecker(cfg, price_fetcher)
 notifier = Notifier(cfg)
 
-# حالة الفحص
 if "scanner_running" not in st.session_state:
     st.session_state.scanner_running = False
 if "wallets_found" not in st.session_state:
@@ -33,13 +32,13 @@ if "total_scanned" not in st.session_state:
 if "notified" not in st.session_state:
     st.session_state.notified = False
 
-# واجهة التحكم
 with st.sidebar:
     st.header("⚙️ إعدادات الفحص")
     min_usdt = st.number_input("الحد الأدنى للرصيد (USDT)", value=100.0)
     max_rate = st.number_input("معدل الفحص", value=20000)
     telegram_alert = st.toggle("🔔 إشعار Telegram عند تجاوز مبلغ", value=False)
     alert_threshold = st.number_input("📢 أرسل إشعار عند رصيد >", value=1000.0)
+
     if st.button("▶️ بدء الفحص"):
         if not st.session_state.scanner_running:
             st.session_state.scanner_running = True
@@ -65,8 +64,8 @@ with st.sidebar:
                         try:
                             loop.run_until_complete(notifier.send_telegram(message))
                             st.session_state.notified = True
-                        except:
-                            pass
+                        except Exception as e:
+                            logging.warning(f"Telegram send failed: {e}")
                 st.session_state.scanner_running = False
 
             Thread(target=run_scanner).start()
@@ -74,7 +73,6 @@ with st.sidebar:
     if st.button("⏹️ إيقاف"):
         st.session_state.scanner_running = False
 
-# التبويبات
 tab1, tab2, tab3 = st.tabs(["📊 المراقبة", "💰 النتائج", "📈 الإحصائيات"])
 
 with tab1:
@@ -119,7 +117,6 @@ with tab3:
     else:
         st.info("ابدأ الفحص لرؤية الإحصائيات")
 
-# تحديث تلقائي
 if st.session_state.scanner_running:
     time.sleep(3)
     st.rerun()
