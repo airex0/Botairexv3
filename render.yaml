@@ -1,0 +1,16 @@
+services:
+- type: web
+  name: wallet-scanner-web
+  env: python
+  buildCommand: pip install -r requirements.txt
+  startCommand: streamlit run main.py
+  plan: free
+  autoDeploy: true
+
+- type: worker
+  name: wallet-scanner-worker
+  env: python
+  buildCommand: pip install -r requirements.txt
+  startCommand: python scanner_server.py
+  plan: free
+  autoDeploy: true
